@@ -306,6 +306,12 @@ class RTMDetHead(YOLOv5Head):
         gt_info = gt_instances_preprocess(batch_gt_instances, num_imgs)
         gt_labels = gt_info[:, :, :1]
         gt_bboxes = gt_info[:, :, 1:]  # xyxy
+        if batch_gt_instances_ignore is not None:
+            gt_ignore_info = gt_instances_preprocess(batch_gt_instances_ignore,
+                                                     num_imgs)
+            gt_bboxes_ignore = gt_ignore_info[:, :, 1:]
+        else:
+            gt_bboxes_ignore = None
         pad_bbox_flag = (gt_bboxes.sum(-1, keepdim=True) > 0).float()
 
         device = cls_scores[0].device
@@ -336,7 +342,8 @@ class RTMDetHead(YOLOv5Head):
         assigned_result = self.assigner(flatten_bboxes.detach(),
                                         flatten_cls_scores.detach(),
                                         self.flatten_priors_train, gt_labels,
-                                        gt_bboxes, pad_bbox_flag)
+                                        gt_bboxes, gt_bboxes_ignore,
+                                        pad_bbox_flag)
 
         labels = assigned_result['assigned_labels'].reshape(-1)
         label_weights = assigned_result['assigned_labels_weights'].reshape(-1)

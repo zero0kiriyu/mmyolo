@@ -95,6 +95,7 @@ class BatchDynamicSoftLabelAssigner(nn.Module):
         topk (int): Select top-k predictions to calculate dynamic k
             best matches for each gt. Defaults to 13.
         iou_weight (float): The scale factor of iou cost. Defaults to 3.0.
+        ignore_iof_thr (float): Defaults to -1.0.
         iou_calculator (ConfigType): Config of overlaps Calculator.
             Defaults to dict(type='BboxOverlaps2D').
         batch_iou (bool): Use batch input when calculate IoU.
@@ -107,6 +108,7 @@ class BatchDynamicSoftLabelAssigner(nn.Module):
         soft_center_radius: float = 3.0,
         topk: int = 13,
         iou_weight: float = 3.0,
+        ignore_iof_thr: float = -1,
         iou_calculator: ConfigType = dict(type='mmdet.BboxOverlaps2D'),
         batch_iou: bool = True,
     ) -> None:
@@ -115,12 +117,13 @@ class BatchDynamicSoftLabelAssigner(nn.Module):
         self.soft_center_radius = soft_center_radius
         self.topk = topk
         self.iou_weight = iou_weight
+        self.ignore_iof_thr = ignore_iof_thr
         self.iou_calculator = TASK_UTILS.build(iou_calculator)
         self.batch_iou = batch_iou
 
     @torch.no_grad()
     def forward(self, pred_bboxes: Tensor, pred_scores: Tensor, priors: Tensor,
-                gt_labels: Tensor, gt_bboxes: Tensor,
+                gt_labels: Tensor, gt_bboxes: Tensor, gt_bboxes_ignore: Tensor,
                 pad_bbox_flag: Tensor) -> dict:
         num_gt = gt_bboxes.size(1)
         decoded_bboxes = pred_bboxes
@@ -219,6 +222,14 @@ class BatchDynamicSoftLabelAssigner(nn.Module):
 
         assign_metrics = gt_bboxes.new_full(pred_scores[..., 0].shape, 0)
         assign_metrics[fg_mask_inboxes] = matched_pred_ious
+        if (self.ignore_iof_thr > 0 and gt_bboxes_ignore is not None
+                and gt_bboxes_ignore > 0):
+            pairwise_ious = self.iou_calculator(
+                decoded_bboxes, gt_bboxes_ignore, mode='iof')
+            ignore_max_overlaps, _ = pairwise_ious.max(dim=-1)
+            ignore_idxs = ignore_max_overlaps > self.ignore_iof_thr
+            assigned_labels[ignore_idxs] = -1
+            assigned_labels_weights[ignore_idxs] = 0
 
         return dict(
             assigned_labels=assigned_labels,
